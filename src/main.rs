@@ -7,6 +7,20 @@ use std::io::prelude::*;
 use std::thread;
 use std::time::Duration;
 use std::{io, path::Path};
+use clap::Parser;
+
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+   /// Name of the person to greet
+   #[arg(short, long)]
+   user: String,
+
+   /// Number of times to greet
+   #[arg(short, long)]
+   pass: String,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Message {
@@ -20,7 +34,7 @@ pub struct Message {
 pub struct JsonOutput {
     index: u64,
     sender: String,
-    date: f64,
+    date: String,
     msg: String,
 }
 
@@ -245,11 +259,20 @@ impl MsgOutput for JsonOutput {
             Ok(mut file) => {
                 let offset_utc_hour = 2.0;
                 let offset_utc_sec: f64 = offset_utc_hour * 3600.0;
-                let mut message = String::new();
                 let date_updated = Utc.timestamp((msg.date + offset_utc_sec) as i64, 0);
-                message = message + &date_updated.to_string() + "+" + &offset_utc_hour.to_string();
-                message = message + "," + &msg.sender ;
-                message = message + " , " + &msg.msg;
+                let new_date = date_updated.to_string();
+                
+                let json_output_message = JsonOutput {
+                    date: new_date,
+                    index: msg.index,
+                    msg: msg.msg.clone(),
+                    sender: msg.sender.clone()
+                };
+
+                let message = serde_json::to_string(&json_output_message)?;
+                // message = message + &date_updated.to_string() + "+" + &offset_utc_hour.to_string();
+                // message = message + " : (" + &msg.sender + ")";
+                // message = message + " > " + &msg.msg;
 
                 writeln!(file, "{}", message)?;
             }
@@ -322,9 +345,9 @@ impl MsgOutput for SyslogOutput {
                 let mut message = String::new();
                 let date_updated = Utc.timestamp((msg.date + offset_utc_sec) as i64, 0);
                 message = message + &date_updated.to_string() + "+" + &offset_utc_hour.to_string();
-                message = message + " " + &msg.sender + "["+ msg.index.to_string() +"]" ;
+                message = message + " " + &msg.sender + "["+ &msg.index.to_string() +"]" ;
                 message = message + " " + &msg.msg;
-                count+=1;
+                
                 writeln!(file, "{}", message)?;
             }
             Err(_) => println!("Erreur de création de fichier"),
@@ -469,6 +492,9 @@ fn main() -> anyhow::Result<()> {
     // let login :(String,Option<String>) =(opts.user, opts pass);
 
     // let login = ("strawberry", "pnmmtSVHaC");
+    let args = Args::parse();
+    let login = (&*args.user,&*args.pass);
+
     let client_test = match build_reqwest_client("src/cert.pem") {
         Ok(client) => client,
         Err(error) => return Err(error),
@@ -481,5 +507,5 @@ fn main() -> anyhow::Result<()> {
         sender: String::new(),
     };
 
-    msg_polling(msg_output, &client_test, USER_LOGIN)
+    msg_polling(msg_output, &client_test, login)
 }
