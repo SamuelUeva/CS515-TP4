@@ -307,7 +307,6 @@ impl MsgOutput for CSVOutput {
 impl MsgOutput for SyslogOutput {
     fn write_msg(&mut self, msg: &Message) -> anyhow::Result<usize> {
         let path = "syslog_output.txt";
-        let count = 0;
         let already = Path::new(path).exists();
         if !already {
             match File::create(path) {
@@ -323,7 +322,7 @@ impl MsgOutput for SyslogOutput {
                 let mut message = String::new();
                 let date_updated = Utc.timestamp((msg.date + offset_utc_sec) as i64, 0);
                 message = message + &date_updated.to_string() + "+" + &offset_utc_hour.to_string();
-                message = message + " " + &msg.sender + "["+ count.to_string +"]" ;
+                message = message + " " + &msg.sender + "["+ msg.index.to_string() +"]" ;
                 message = message + " " + &msg.msg;
                 count+=1;
                 writeln!(file, "{}", message)?;
