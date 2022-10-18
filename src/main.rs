@@ -11,15 +11,28 @@ use clap::Parser;
 
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about)]
 struct Args {
-   /// Name of the person to greet
+   /// Name of the user
    #[arg(short, long)]
    user: String,
 
-   /// Number of times to greet
+   /// Password of the user
    #[arg(short, long)]
    pass: String,
+
+   /// Set JSON format for output message
+   #[arg(short,long)]
+   json: bool,
+   
+   /// Set CSV format for output message
+   #[arg(short,long)]
+   csv: bool,
+   
+   /// Set SYSLOG format for output message
+   #[arg(short,long)]
+   syslog: bool,
+
 }
 
 #[derive(Serialize, Deserialize)]
@@ -488,10 +501,6 @@ static USER_LOGIN: (&str,&str) = ("strawberry", "pnmmtSVHaC");
 
 fn main() -> anyhow::Result<()> {
 
-    // let opts = Opt::parse();
-    // let login :(String,Option<String>) =(opts.user, opts pass);
-
-    // let login = ("strawberry", "pnmmtSVHaC");
     let args = Args::parse();
     let login = (&*args.user,&*args.pass);
 
@@ -506,6 +515,9 @@ fn main() -> anyhow::Result<()> {
         msg: String::new(),
         sender: String::new(),
     };
+
+    println!("Test argument commande : {}, {}", login.0, login.1);
+    println!("pour json : {}", args.json);
 
     msg_polling(msg_output, &client_test, login)
 }
