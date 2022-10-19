@@ -213,6 +213,9 @@ pub trait MsgOutput {
     // fn SyslogOutput(&mut self, msg: &Message) -> anyhow::Result<()>;
 
 }
+pub fn dispatch(type: &dyn MsgOutput,m: Message){
+    type.write_msg(message);
+}
 
 impl MsgOutput for Message {
 
