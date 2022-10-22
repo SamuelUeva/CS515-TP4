@@ -12,7 +12,7 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
-struct Args {
+pub struct Args {
    /// Name of the user
    #[arg(short, long)]
    user: String,
@@ -125,6 +125,9 @@ pub fn get_messages(
     index: usize,
     len: usize,
     mut callback: impl FnMut(Message) -> anyhow::Result<()>,
+    json_out: bool,
+    csv_out: bool,
+    syslog_out: bool,
 ) -> anyhow::Result<usize> {
     let mut nb_mess = 0;
 
@@ -134,6 +137,47 @@ pub fn get_messages(
         msg: String::new(),
         sender: String::new(),
     };
+
+    let mut vec_output:Vec<Box<dyn MsgOutput>>  = Vec::new();
+    let msg_output_default = Message {
+        index: 0,
+        date: 0.0,
+        msg: String::new(),
+        sender: String::new(),
+    };
+
+    // Vérification du format à utiliser pour l'écriture des messages
+    if json_out {
+        let json_output = JsonOutput {
+            date: "".to_string(),
+            index: 0,
+            msg: "".to_string(),
+            sender: "".to_string(),
+        };
+        vec_output.push(Box::new(json_output) as Box<dyn MsgOutput + Send>);
+    }
+    if csv_out {
+        let csv_output = CSVOutput {
+            date: 0.0,
+            index: 0,
+            msg: "".to_string(),
+            sender: "".to_string(),
+        };
+        vec_output.push(Box::new(csv_output)as Box<dyn MsgOutput + Send>);
+    }
+    if syslog_out {
+        let syslog_output = SyslogOutput {
+            date: 0.0,
+            index: 0,
+            msg: "".to_string(),
+            sender: "".to_string(),
+        };
+        vec_output.push(Box::new(syslog_output)as Box<dyn MsgOutput + Send>);
+    }
+
+    if !csv_out && !json_out && !syslog_out {
+        vec_output.push(Box::new(msg_output_default));
+    }
 
     // requête de la forme "https://mychat.com:40443/get?index={}&len={}"
     let response = client
@@ -147,11 +191,13 @@ pub fn get_messages(
     let test_json: Vec<Message> = serde_json::from_str(&texte)?;
 
     for elt in test_json {
-        match tmp.write_msg(&elt) {
-            Ok(_) => {}
-            Err(error) => return Err(error),
-        };
 
+        for format in vec_output.iter_mut() {
+            match (format).write_msg(&elt) {
+                Ok(_) => {}
+                Err(error) => return Err(error),
+            };
+        }
         // Appel de la fonction callback. Si le traitement sur le message reçu se passe bien
         // on incrémente le compteur. Sinon on aura une erreur
         match callback(elt) {
@@ -205,14 +251,11 @@ pub fn leave_tchat(
     Ok(())
 }
 
-pub trait MsgOutput {
+pub trait MsgOutput: Send + Sync {
     fn write_msg(&mut self, msg: &Message) -> anyhow::Result<usize>;
     fn flush(&mut self) -> anyhow::Result<()>;
-    // fn JsonOutput(&mut self, msg: &Message) -> anyhow::Result<()>;
-    // fn CSVOutput(&mut self, msg: &Message) -> anyhow::Result<()>;
-    // fn SyslogOutput(&mut self, msg: &Message) -> anyhow::Result<()>;
-
 }
+
 pub fn dispatch(type_output: &mut dyn MsgOutput,m: &Message) -> anyhow::Result<()> {
     match type_output.write_msg(m){
         Ok(_) => Ok(()),
@@ -393,11 +436,139 @@ pub fn test_callback(mess: Message) -> anyhow::Result<()> {
 }
 
 
+// pub fn msg_polling<T: MsgOutput>(
+//     mut msg_output: T,
+//     client: &Client,
+//     login: (&str, &str),
+//     vec_output: Vec<Box<dyn MsgOutput>>,
+// ) -> anyhow::Result<()> {
+//     // Entrée dans le chat
+//     match enter_tchat(client, login) {
+//         Ok(_) => {}
+//         Err(error) => {
+//             println!("Erreur de connection : {}", error);
+//             return Err(error);
+//         }
+//     };
+
+//     let len: usize = 10;
+
+//     let mut stay = true;
+//     let mut last_index: usize;
+
+//     // Récupération de l'indice du dernier message
+//     last_index = match get_last(client, login) {
+//         Ok(index) => index,
+//         Err(error) => return Err(error),
+//     };
+
+//     // Récupération des 10 derniers messages pour afficher dans le chat du client
+
+//     let last_message: usize;
+//     if last_index < 10 {
+//         last_message = last_index;
+//     } else {
+//         last_message = last_index - len;
+//     }
+
+//     let tmp: &Vec<Box<dyn MsgOutput>> = (&vec_output).clone();
+//     // for elt in vec_output {
+//     //     tmp.push(Box::new(elt.into()));
+//     // }
+
+//     match get_messages(client, login, last_message, len, test_callback, (&vec_output).clone()) {
+//         Ok(_) => {}
+//         Err(error) => return Err(error),
+//     };
+
+//     let stdin = io::stdin();
+
+//     let client2 = client.clone();
+
+//     // thread pour la réception des nouveaux messages apparus sur le serveur
+//     thread::spawn(move || {
+        
+//         // let vec_output = tmp;
+//         loop {
+
+//             // let mut tmp = &*vec_output.clone();
+//             let pre_last_index = match get_last(&client2, USER_LOGIN) {
+//                 Ok(index) => index,
+//                 Err(_) => {
+//                     println!("Erreur lors de la récupération du dernier index");
+//                     0
+//                 }
+//             };
+//             // On ne récupère les messages que s'il y a de nouveaux messages par rapport aux dernierx qu'on
+//             // avait récupérés
+//             if pre_last_index > last_index {
+//                 match get_messages(
+//                     &client2,
+//                     USER_LOGIN,
+//                     last_index,
+//                     pre_last_index - last_index,
+//                     test_callback,
+//                     &tmp
+//                 ) {
+//                     Ok(_) => {}
+//                     Err(_) => {
+//                         println!("Erreur lors de la récupération des nouveaux messages")
+//                     }
+//                 };
+//                 last_index = pre_last_index;
+//             } else {
+//                 thread::sleep(Duration::from_secs(1));
+//             }
+//         }
+//     });
+
+//     // partie principal pour l'écriture des messages vers le serveur
+//     while stay {
+//         let mut buffer = String::new();
+
+//         match msg_output.flush() {
+//             Ok(_) => {}
+//             Err(error) => println!("Erreur lors du flush : {}", error),
+//         };
+
+//         stdin.read_line(&mut buffer)?;
+
+//         if buffer.contains("quit()") {
+//             stay = false;
+//         } else {
+//             // let mut tmp_buff = "Ace : ".to_owned();
+//             // tmp_buff.push_str(&buffer);
+//             match send_message(client, login, buffer) {
+//                 Ok(_) => {}
+//                 Err(_) => {
+//                     println!("Erreur lors de l'envoi du message");
+//                 }
+//             };
+//         }
+//     }
+
+//     match leave_tchat(client, login) {
+//         Ok(_) => {}
+//         Err(error) => {
+//             println!("Erreur de déconnection : {}", error);
+//             return Err(error);
+//         }
+//     };
+
+//     Ok(())
+// }
+
+
+
 pub fn msg_polling<T: MsgOutput>(
     mut msg_output: T,
     client: &Client,
     login: (&str, &str),
+    json_out: bool,
+    csv_out: bool,
+    syslog_out: bool,
 ) -> anyhow::Result<()> {
+    
     // Entrée dans le chat
     match enter_tchat(client, login) {
         Ok(_) => {}
@@ -420,13 +591,13 @@ pub fn msg_polling<T: MsgOutput>(
 
     // Récupération des 10 derniers messages pour afficher dans le chat du client
 
-    let last_message: usize;
-    if last_index < 10 {
-        last_message = last_index;
+    let last_message: usize = if last_index < 10 {
+        last_index
     } else {
-        last_message = last_index - len;
-    }
-    match get_messages(client, login, last_message, len, test_callback) {
+        last_index - len
+    };
+
+    match get_messages(client, login, last_message, len, test_callback, json_out, csv_out, syslog_out) {
         Ok(_) => {}
         Err(error) => return Err(error),
     };
@@ -437,7 +608,11 @@ pub fn msg_polling<T: MsgOutput>(
 
     // thread pour la réception des nouveaux messages apparus sur le serveur
     thread::spawn(move || {
+        
+        // let vec_output = tmp;
         loop {
+
+            // let mut tmp = &*vec_output.clone();
             let pre_last_index = match get_last(&client2, USER_LOGIN) {
                 Ok(index) => index,
                 Err(_) => {
@@ -454,6 +629,9 @@ pub fn msg_polling<T: MsgOutput>(
                     last_index,
                     pre_last_index - last_index,
                     test_callback,
+                    json_out,
+                    csv_out,
+                    syslog_out
                 ) {
                     Ok(_) => {}
                     Err(_) => {
@@ -464,11 +642,15 @@ pub fn msg_polling<T: MsgOutput>(
             } else {
                 thread::sleep(Duration::from_secs(1));
             }
+
+            
+            
         }
     });
 
     // partie principal pour l'écriture des messages vers le serveur
     while stay {
+
         let mut buffer = String::new();
 
         match msg_output.flush() {
@@ -490,6 +672,8 @@ pub fn msg_polling<T: MsgOutput>(
                 }
             };
         }
+
+        
     }
 
     match leave_tchat(client, login) {
@@ -503,12 +687,16 @@ pub fn msg_polling<T: MsgOutput>(
     Ok(())
 }
 
+
 static USER_LOGIN: (&str,&str) = ("strawberry", "pnmmtSVHaC");
+
 
 fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
     let login = (&*args.user,&*args.pass);
+
+    
 
     let client_test = match build_reqwest_client("src/cert.pem") {
         Ok(client) => client,
@@ -522,8 +710,10 @@ fn main() -> anyhow::Result<()> {
         sender: String::new(),
     };
 
-    println!("Test argument commande : {}, {}", login.0, login.1);
-    println!("pour json : {}", args.json);
+    
 
-    msg_polling(msg_output, &client_test, login)
+    println!("Test argument commande : {}, {}", login.0, login.1);
+    println!("pour arguments output : {}", 1);
+
+    msg_polling(msg_output, &client_test, login, args.json, args.csv, args.syslog)
 }
