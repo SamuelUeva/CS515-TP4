@@ -125,10 +125,10 @@ pub fn get_messages(
     index: usize,
     len: usize,
     mut callback: impl FnMut(Message) -> anyhow::Result<()>,
-    // vec_output: &Vec<Box<dyn MsgOutput>>,
-    json_out: bool,
-    csv_out: bool,
-    syslog_out: bool,
+    vec_output: Vec<Box<dyn MsgOutput>>,
+    // json_out: bool,
+    // csv_out: bool,
+    // syslog_out: bool,
 ) -> anyhow::Result<usize> {
     let mut nb_mess = 0;
 
@@ -138,47 +138,6 @@ pub fn get_messages(
         msg: String::new(),
         sender: String::new(),
     };
-
-    let mut vec_output:Vec<Box<dyn MsgOutput>>  = Vec::new();
-    // let msg_output_default = Message {
-    //     index: 0,
-    //     date: 0.0,
-    //     msg: String::new(),
-    //     sender: String::new(),
-    // };
-
-    // Vérification du format à utiliser pour l'écriture des messages
-    if json_out {
-        let json_output = JsonOutput {
-            date: "".to_string(),
-            index: 0,
-            msg: "".to_string(),
-            sender: "".to_string(),
-        };
-        vec_output.push(Box::new(json_output) as Box<dyn MsgOutput + Send>);
-    }
-    if csv_out {
-        let csv_output = CSVOutput {
-            date: 0.0,
-            index: 0,
-            msg: "".to_string(),
-            sender: "".to_string(),
-        };
-        vec_output.push(Box::new(csv_output)as Box<dyn MsgOutput + Send>);
-    }
-    if syslog_out {
-        let syslog_output = SyslogOutput {
-            date: 0.0,
-            index: 0,
-            msg: "".to_string(),
-            sender: "".to_string(),
-        };
-        vec_output.push(Box::new(syslog_output)as Box<dyn MsgOutput + Send>);
-    }
-
-    // if !csv_out && !json_out && !syslog_out {
-    //     vec_output.push(Box::new(msg_output_default));
-    // }
 
     // requête de la forme "https://mychat.com:40443/get?index={}&len={}"
     let response = client
@@ -196,10 +155,25 @@ pub fn get_messages(
     //     tmp2.push(elt.clone_dyn());
     // }
 
+
+    let mut tmp3 = Vec::new();
+    for elt in vec_output{
+        tmp3.push(elt.clone_dyn());
+    }
+
     for elt in test_json {
 
-        for format  in vec_output.iter_mut() {
-            match (format).write_msg(&elt) {
+        let mut tmp1 = Vec::new();
+        let mut tmp2 = Vec::new();
+        for elt in &tmp3 {
+            tmp1.push(elt.clone_dyn());
+            tmp2.push(elt.clone_dyn());
+        }
+
+        let tmp3 = tmp2;
+
+        for mut format in tmp3 {
+            match (format.as_mut()).write_msg(&elt) {
                 Ok(_) => {}
                 Err(error) => return Err(error),
             };
@@ -260,7 +234,7 @@ pub fn leave_tchat(
 pub trait MsgOutput: Send + Sync {
     fn write_msg(&mut self, msg: &Message) -> anyhow::Result<usize>;
     fn flush(&mut self) -> anyhow::Result<()>;
-    fn clone_dyn(self) -> Box<dyn MsgOutput>;
+    fn clone_dyn(&self) -> Box<dyn MsgOutput>;
 }
 
 pub fn dispatch(type_output: &mut dyn MsgOutput,m: &Message) -> anyhow::Result<()> {
@@ -310,9 +284,9 @@ impl MsgOutput for Message {
         Ok(())
     }
 
-    fn clone_dyn(self) -> Box<dyn MsgOutput> {
+    fn clone_dyn(&self) -> Box<dyn MsgOutput> {
         let msg_output_default = Message {
-            index: self.index.clone(),
+            index: self.index,
             date: 0.0,
             msg: String::new(),
             sender: String::new(),
@@ -368,10 +342,10 @@ impl MsgOutput for JsonOutput {
         };
         Ok(())
     }
-    fn clone_dyn(self) -> Box<dyn MsgOutput> {
+    fn clone_dyn(&self) -> Box<dyn MsgOutput> {
         let json_output = JsonOutput {
             date: self.date.clone(),
-            index: self.index.clone(),
+            index: self.index,
             msg: self.msg.clone(),
             sender: self.sender.clone(),
         };
@@ -414,10 +388,10 @@ impl MsgOutput for CSVOutput {
         Ok(())
     }
 
-    fn clone_dyn(self) -> Box<dyn MsgOutput> {
+    fn clone_dyn(&self) -> Box<dyn MsgOutput> {
         let csv_output = CSVOutput {
-            date: self.date.clone(),
-            index: self.index.clone(),
+            date: self.date,
+            index: self.index,
             msg: self.msg.clone(),
             sender: self.sender.clone(),
         };
@@ -464,10 +438,10 @@ impl MsgOutput for SyslogOutput {
         Ok(())
     }
 
-    fn clone_dyn(self) -> Box<dyn MsgOutput> {
+    fn clone_dyn(&self) -> Box<dyn MsgOutput> {
         let syslog_output = SyslogOutput {
-            date: self.date.clone(),
-            index: self.index.clone(),
+            date: self.date,
+            index: self.index,
             msg: self.msg.clone(),
             sender: self.sender.clone(),
         };
@@ -611,10 +585,10 @@ pub fn msg_polling<T: MsgOutput>(
     mut msg_output: T,
     client: &Client,
     login: (&str, &str),
-    // vec_output: Vec<Box<dyn MsgOutput>>,
-    json_out: bool,
-    csv_out: bool,
-    syslog_out: bool,
+    vec_output: Vec<Box<dyn MsgOutput + Send >>,
+    // json_out: bool,
+    // csv_out: bool,
+    // syslog_out: bool,
 ) -> anyhow::Result<()> {
     
     // Entrée dans le chat
@@ -626,7 +600,7 @@ pub fn msg_polling<T: MsgOutput>(
         }
     };
 
-    let len: usize = 10;
+    // let len: usize = 10;
 
     let mut stay = true;
     let mut last_index: usize;
@@ -638,17 +612,21 @@ pub fn msg_polling<T: MsgOutput>(
     };
 
     // Récupération des 10 derniers messages pour afficher dans le chat du client
+    // let last_message: usize = if last_index < 10 {
+    //     last_index
+    // } else {
+    //     last_index - len
+    // };
 
-    let last_message: usize = if last_index < 10 {
-        last_index
-    } else {
-        last_index - len
-    };
+    let mut tmp3 = Vec::new();
+    for elt in vec_output{
+        tmp3.push(elt.clone_dyn());
+    }
 
-    match get_messages(client, login, last_message, len, test_callback, json_out, csv_out, syslog_out) {
-        Ok(_) => {}
-        Err(error) => return Err(error),
-    };
+    // match get_messages(client, login, last_message, len, test_callback, (vec_output)/*json_out, csv_out, syslog_out*/) {
+    //     Ok(_) => {}
+    //     Err(error) => return Err(error),
+    // };
 
     let stdin = io::stdin();
 
@@ -659,7 +637,18 @@ pub fn msg_polling<T: MsgOutput>(
         
         // let vec_output = tmp;
         loop {
+            let mut tmp = Vec::new();
+            let mut tmp2 = Vec::new();
+            for elt in tmp3 {
+                tmp.push(elt.clone_dyn());
+                tmp2.push(elt.clone_dyn());
+            }
 
+            tmp3 = tmp2;
+            // match get_messages(&client2, USER_LOGIN, last_message, len, test_callback, (vec_output)/*json_out, csv_out, syslog_out*/) {
+            //     Ok(_) => {}
+            //     Err(error) => return (error),
+            // };
             // let mut tmp = &*vec_output.clone();
             let pre_last_index = match get_last(&client2, USER_LOGIN) {
                 Ok(index) => index,
@@ -677,10 +666,10 @@ pub fn msg_polling<T: MsgOutput>(
                     last_index,
                     pre_last_index - last_index,
                     test_callback,
-                    // (&vec_output).clone()
-                    json_out,
-                    csv_out,
-                    syslog_out
+                    tmp
+                    // json_out,
+                    // csv_out,
+                    // syslog_out
                 ) {
                     Ok(_) => {}
                     Err(_) => {
@@ -743,9 +732,7 @@ static USER_LOGIN: (&str,&str) = ("strawberry", "pnmmtSVHaC");
 fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
-    let login = (&*args.user,&*args.pass);
-
-    
+    let login = (args.user.as_str(),args.pass.as_str());
 
     let client_test = match build_reqwest_client("src/cert.pem") {
         Ok(client) => client,
@@ -759,47 +746,41 @@ fn main() -> anyhow::Result<()> {
         sender: String::new(),
     };
 
-    // let mut vec_output:Vec<Box<dyn MsgOutput>>  = Vec::new();
-    // let msg_output_default = Message {
-    //     index: 0,
-    //     date: 0.0,
-    //     msg: String::new(),
-    //     sender: String::new(),
-    // };
-
+    let mut vec_output /* :Vec<Box<dyn MsgOutput>>*/  = Vec::new();
+    
     // Vérification du format à utiliser pour l'écriture des messages
-    // if args.json {
-    //     let json_output = JsonOutput {
-    //         date: "".to_string(),
-    //         index: 0,
-    //         msg: "".to_string(),
-    //         sender: "".to_string(),
-    //     };
-    //     vec_output.push(Box::new(json_output) as Box<dyn MsgOutput + Send>);
-    // }
-    // if args.csv {
-    //     let csv_output = CSVOutput {
-    //         date: 0.0,
-    //         index: 0,
-    //         msg: "".to_string(),
-    //         sender: "".to_string(),
-    //     };
-    //     vec_output.push(Box::new(csv_output)as Box<dyn MsgOutput + Send>);
-    // }
-    // if args.syslog {
-    //     let syslog_output = SyslogOutput {
-    //         date: 0.0,
-    //         index: 0,
-    //         msg: "".to_string(),
-    //         sender: "".to_string(),
-    //     };
-    //     vec_output.push(Box::new(syslog_output)as Box<dyn MsgOutput + Send>);
-    // }
+    if args.json {
+        let json_output = JsonOutput {
+            date: "".to_string(),
+            index: 0,
+            msg: "".to_string(),
+            sender: "".to_string(),
+        };
+        vec_output.push(Box::new(json_output) as Box<dyn MsgOutput + Send>);
+    }
+    if args.csv {
+        let csv_output = CSVOutput {
+            date: 0.0,
+            index: 0,
+            msg: "".to_string(),
+            sender: "".to_string(),
+        };
+        vec_output.push(Box::new(csv_output)as Box<dyn MsgOutput + Send>);
+    }
+    if args.syslog {
+        let syslog_output = SyslogOutput {
+            date: 0.0,
+            index: 0,
+            msg: "".to_string(),
+            sender: "".to_string(),
+        };
+        vec_output.push(Box::new(syslog_output)as Box<dyn MsgOutput + Send>);
+    }
 
     println!("Test argument commande : {}, {}", login.0, login.1);
     println!("pour arguments output : {}", 1);
 
-    msg_polling(msg_output, &client_test, login, args.json, args.csv, args.syslog)
+    msg_polling(msg_output, &client_test, login, vec_output/*args.json, args.csv, args.syslog*/)
 }
 
 // cargo run --bin server --release -- --adress 0.0.0.0 --port 40443 --database chat.db --output chat.txt --cert cert.perm --key key.pem
