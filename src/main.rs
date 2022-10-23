@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::{thread, vec};
+// use std::sync::{Arc, Mutex};
+use std::{thread, vec, process};
 use std::time::Duration;
 use std::{io, path::Path};
 use clap::Parser;
-
+use syslog::{Facility, Formatter3164};
+use lazy_static::lazy_static;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -348,7 +350,7 @@ impl MsgOutput for CSVOutput {
         if !already {
             match File::create(path) {
                 Ok(mut file) => {
-                    writeln!(file, "{}", "Date,Sender,Index,Message")?;
+                    writeln!(file, "Date,Sender,Index,Message")?;
                 }
                 Err(error) => println!("Erreur de création de fichier : {}", error),
             }
@@ -393,30 +395,31 @@ impl MsgOutput for CSVOutput {
 
 impl MsgOutput for SyslogOutput {
     fn write_msg(&mut self, msg: &Message) -> anyhow::Result<usize> {
-        let path = "syslog_output.txt";
-        let already = Path::new(path).exists();
-        if !already {
-            match File::create(path) {
-                Ok(_) => {}
-                Err(error) => println!("Erreur de création de fichier : {}", error),
-            }
-        }
 
-        match OpenOptions::new().write(true).append(true).open(path) {
-            Ok(mut file) => {
-                let offset_utc_hour = 2.0;
-                let offset_utc_sec: f64 = offset_utc_hour * 3600.0;
-                let mut message = String::new();
-                let date_updated = Utc.timestamp((msg.date + offset_utc_sec) as i64, 0);
-                message = message + &date_updated.to_string() + "+" + &offset_utc_hour.to_string();
-                message = message + " " + &msg.sender + "["+ &msg.index.to_string() +"]" ;
-                message = message + " " + &msg.msg;
-                
-                writeln!(file, "{}", message)?;
-            }
-            Err(_) => println!("Erreur de création de fichier"),
+        let formatter = Formatter3164 {
+            facility: Facility::LOG_USER,
+            hostname: None,
+            process: "CS515-tp4_messagerie".into(),
+            pid: process::id(),
         };
 
+        let offset_utc_hour = 2.0;
+        let offset_utc_sec: f64 = offset_utc_hour * 3600.0;
+        let mut message = String::new();
+        let date_updated = Utc.timestamp((msg.date + offset_utc_sec) as i64, 0);
+        message = message + &date_updated.to_string() + "+" + &offset_utc_hour.to_string();
+        message = message + " " + &msg.sender + "["+ &msg.index.to_string() +"]" ;
+        message = message + " " + &msg.msg;
+        
+        match syslog::unix(formatter) {
+            Err(e) => println!("impossible to connect to syslog: {:?}", e),
+            Ok(mut writer) => {
+                match writer.err(message){
+                Ok(_) => {},
+                Err(error) => println!("Error for writting for syslog: {}", error)
+                };
+            }
+        }
         Ok(1)
     }
 
@@ -451,8 +454,10 @@ pub fn msg_polling<T: MsgOutput>(
     mut msg_output: T,
     client: &Client,
     login: (&str, &str),
+    // user: &str,
+    // mdp: &str,
     vec_output: Vec<Box<dyn MsgOutput + Send >>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>{
     
     // Entrée dans le chat
     match enter_tchat(client, login) {
@@ -481,11 +486,20 @@ pub fn msg_polling<T: MsgOutput>(
     let stdin = io::stdin();
 
     let client2 = client.clone();
+    // let login1 = login.clone();
+    // let var_login = login.clone();
+    // let var_login2 = login.clone();
+    // let ooo = ("e", "e");
+
 
     // thread pour la réception des nouveaux messages apparus sur le serveur
     thread::spawn(move || {
-        
+        // let login2 = login2;
         loop {
+        // let login2: Arc<Mutex<(&str,&str)>> = Arc::new(Mutex::new((login1.0, login1.1)));
+    
+        // let login2 = Arc::clone(&login2);
+        // let var_login = login2.lock().unwrap();
             // Copie du vecteur dans deux autres variable. Une pour avoir une sauvegarde et la repasser dans la
             // boucle for
             // Une pour la passer à la fonction get_message
@@ -499,7 +513,7 @@ pub fn msg_polling<T: MsgOutput>(
             // Récupération d'une des copies pour pouvoir continuer dans la boucle
             tmp3 = tmp2;
             
-            let pre_last_index = match get_last(&client2, USER_LOGIN) {
+            let pre_last_index = match get_last(&client2, (USER.as_str(), PASS.as_str())) {
                 Ok(index) => index,
                 Err(_) => {
                     println!("Erreur lors de la récupération du dernier index");
@@ -511,7 +525,7 @@ pub fn msg_polling<T: MsgOutput>(
             if pre_last_index > last_index {
                 match get_messages(
                     &client2,
-                    USER_LOGIN,
+                    (USER.as_str(), PASS.as_str()),
                     last_index,
                     pre_last_index - last_index,
                     test_callback,
@@ -526,6 +540,7 @@ pub fn msg_polling<T: MsgOutput>(
             } else {
                 thread::sleep(Duration::from_secs(1));
             }            
+            
         }
     });
 
@@ -565,16 +580,23 @@ pub fn msg_polling<T: MsgOutput>(
     Ok(())
 }
 
-
-static USER_LOGIN: (&str,&str) = ("strawberry", "pnmmtSVHaC");
-
+// Nous avons du utiliser le lazy_static pour créer des variables static pour pouvoir
+// passer les logins au thread permettant de récupérer les messages.
+// Nous avons essayer de cloner et de faire des mutex mais nous n'avons pas réussi à pouvoir
+// passer le faire.
+// Un des inconvénients de cette méthodes, c'est qu'il faut respecter l'ordre des arguments dans 
+// la ligne de commande
+lazy_static! {
+    static ref USER: String = std::env::args().nth(2).unwrap();
+    static ref PASS: String = std::env::args().nth(4).unwrap();
+}
 
 fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
     // Récupération du login et du mot de passe
     let login = (args.user.as_str(),args.pass.as_str());
-
+    
     let client_test = match build_reqwest_client("src/cert.pem") {
         Ok(client) => client,
         Err(error) => return Err(error),
