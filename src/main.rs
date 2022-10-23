@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-// use std::sync::{Arc, Mutex};
 use std::{thread, vec, process};
 use std::time::Duration;
 use std::{io, path::Path};
@@ -454,8 +453,6 @@ pub fn msg_polling<T: MsgOutput>(
     mut msg_output: T,
     client: &Client,
     login: (&str, &str),
-    // user: &str,
-    // mdp: &str,
     vec_output: Vec<Box<dyn MsgOutput + Send >>,
 ) -> anyhow::Result<()>{
     
@@ -486,20 +483,11 @@ pub fn msg_polling<T: MsgOutput>(
     let stdin = io::stdin();
 
     let client2 = client.clone();
-    // let login1 = login.clone();
-    // let var_login = login.clone();
-    // let var_login2 = login.clone();
-    // let ooo = ("e", "e");
-
 
     // thread pour la réception des nouveaux messages apparus sur le serveur
     thread::spawn(move || {
-        // let login2 = login2;
+        
         loop {
-        // let login2: Arc<Mutex<(&str,&str)>> = Arc::new(Mutex::new((login1.0, login1.1)));
-    
-        // let login2 = Arc::clone(&login2);
-        // let var_login = login2.lock().unwrap();
             // Copie du vecteur dans deux autres variable. Une pour avoir une sauvegarde et la repasser dans la
             // boucle for
             // Une pour la passer à la fonction get_message
